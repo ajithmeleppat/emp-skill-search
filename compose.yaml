@@ -1,0 +1,94 @@
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE}
+    container_name: postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"'
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  elasticsearch:
+    image: ${ELASTIC_IMAGE}
+    container_name: elasticsearch
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "true"
+      ELASTIC_PASSWORD_FILE: /run/secrets/elastic_password
+      ES_JAVA_OPTS: "-Xms${ELASTIC_MEMORY} -Xmx${ELASTIC_MEMORY}"
+    secrets:
+      - elastic_password
+    ports:
+      - "127.0.0.1:${ELASTIC_PORT}:9200"
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+    healthcheck:
+      # test:
+        # - CMD-SHELL
+        # - >
+        #   'curl --silent --fail 
+        #   --cacert config/certs/http_ca.crt 
+        #   https://localhost:9200/_cluster/health || exit 1'
+      test:
+        - CMD-SHELL
+        - >
+          curl --silent --fail
+          -u "elastic:$$(cat /run/secrets/elastic_password)"
+          http://localhost:9200/_cluster/health || exit 1  
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 60s
+      
+  jupyter:
+    build: ./jupyter
+    container_name: jupyter
+    restart: unless-stopped
+    command:
+      - bash
+      - -lc
+      - |
+        TOKEN="$$(cat /run/secrets/jupyter_token)"
+        exec start-notebook.py --IdentityProvider.token="$$TOKEN"
+    ports:
+      - "127.0.0.1:${JUPYTER_PORT}:8888"
+    volumes:
+      - ./workspace:/home/jovyan/work
+    depends_on:
+      postgres:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    secrets:
+      - postgres_password
+    environment:
+      POSTGRES_HOST: ${POSTGRES_HOST}
+      POSTGRES_PORT: ${POSTGRES_PORT}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_DB: ${POSTGRES_DB}
+volumes:
+  pgdata:
+  esdata:
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password.txt
+  elastic_password:
+    file: ./secrets/elastic_password.txt
+  jupyter_password:
+    file: ./secrets/jupyter_password.txt

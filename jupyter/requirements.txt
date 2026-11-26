@@ -1,0 +1,6 @@
+sqlalchemy
+psycopg[binary]
+elasticsearch
+pandas
+numpy
+python-dotenv
